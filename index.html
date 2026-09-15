@@ -76,6 +76,7 @@ th{background:#f8fafc;position:sticky;top:0}
 .timeline b{display:block;font-size:18px;color:var(--accent)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:640px){.grid2{grid-template-columns:1fr}.q{font-size:18px}}
+.star{border:none;background:transparent;font-size:22px;line-height:1;cursor:pointer;color:#c7cbd1;padding:0 4px}.star.on{color:#f59e0b}
 .pill{display:inline-block;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:700;background:#eef2ff;color:#1e3a8a}
 .hidden{display:none}
 .result{font-size:34px;font-weight:900}
@@ -96,7 +97,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;padding:20px}
   <button data-tab="learn">📖 Learn</button>
   <button data-tab="quiz">🎯 Quiz</button>
   <button data-tab="exam">📝 Mock exam</button>
-  <button data-tab="mistakes">❗ Mistakes</button>
+  <button data-tab="mistakes">⭐ Saved</button>
   <button data-tab="cheat">🗒️ Cheat sheet</button>
   <button data-tab="plan">📅 10-day plan</button>
 </nav>
@@ -118,7 +119,21 @@ const shuffle = a => {a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.flo
 // ---------- persistence ----------
 let S = {state:'BB', showEn:true, learned:{}, wrong:{}, seen:{}, plan:{}, exams:[]};
 try{ const raw=localStorage.getItem('lid-trainer-v1'); if(raw) S=Object.assign(S,JSON.parse(raw)); }catch(e){}
-const save=()=>{try{localStorage.setItem('lid-trainer-v1',JSON.stringify(S));}catch(e){}};
+const save=()=>{try{localStorage.setItem('lid-trainer-v1',JSON.stringify(S));}catch(e){} saveFav();};
+// favourites: {key: savedAt}; kept 30 days in a cookie (mirrored in localStorage)
+const FAV_TTL = 30*24*3600*1000;
+function loadFav(){
+  let f = {};
+  try{ const c=document.cookie.split('; ').find(x=>x.startsWith('lidfav=')); if(c) f=JSON.parse(decodeURIComponent(c.slice(7))); }catch(e){}
+  if(!Object.keys(f).length && S.fav) f=S.fav;
+  const now=Date.now(); for(const k in f){ if(now-f[k]>FAV_TTL) delete f[k]; }
+  S.fav=f;
+}
+function saveFav(){ try{ document.cookie='lidfav='+encodeURIComponent(JSON.stringify(S.fav||{}))+'; max-age='+(30*24*3600)+'; path=/; SameSite=Lax'; }catch(e){} }
+loadFav();
+const isFav = q => !!(S.fav||{})[key(q)];
+function toggleFav(q){ S.fav=S.fav||{}; if(isFav(q)) delete S.fav[key(q)]; else S.fav[key(q)]=Date.now(); save(); render(); }
+function starBtn(q){ return el('button',{class:'star'+(isFav(q)?' on':''),title:isFav(q)?'Remove from saved':'Save for later',onclick:e=>{e.stopPropagation();toggleFav(q);}}, isFav(q)?'★':'☆'); }
 const key = q => (q.state?q.state[0]+q.state[1]:'G')+q.id;
 const pool = () => GEN.concat(STATES[S.state]);
 S.state='BB'; $('#showEn').checked=S.showEn;
@@ -140,6 +155,7 @@ function qHeader(q){
   const m = el('div',{class:'meta'}, tagEl(q.cat), el('span',{},'#'+q.id+(q.state?' · '+q.state:'')));
   if(S.learned[key(q)]) m.append(el('span',{class:'pill',style:'background:#dcfce7;color:#166534'},'✓ learned'));
   if(S.wrong[key(q)]) m.append(el('span',{class:'pill',style:'background:#fee2e2;color:#991b1b'},'✗ '+S.wrong[key(q)]+'x wrong'));
+  m.append(el('span',{style:'flex:1'})); m.append(starBtn(q));
   return m;
 }
 function qBody(q, opts={}){
@@ -161,7 +177,7 @@ function optsEl(q, mode, onPick){
 }
 function tipEl(q){ const pick = q.keySet ? q.keySet.map(k=>'<mark class="k">'+esc(k)+'</mark>').join(' <span class="arr">or</span> ') : '<mark class="k">'+esc(q.key)+'</mark>';
   return el('div',{class:'spot',html:(q.exact?'<span class="small">question is only:</span> ':'')+q.trig.map(t=>'<mark>'+esc(t)+'</mark>').join(' <span class="arr">+</span> ')+' <span class="arr">→</span> '+pick+(q.note?'<span class="note">'+esc(q.note)+'</span>':'')}); }
-function markWrong(q){S.wrong[key(q)]=(S.wrong[key(q)]||0)+1; delete S.learned[key(q)]; save();}
+function markWrong(q){S.wrong[key(q)]=(S.wrong[key(q)]||0)+1; delete S.learned[key(q)]; S.fav=S.fav||{}; S.fav[key(q)]=Date.now(); save();}
 function markRight(q){S.seen[key(q)]=1; save();}
 
 // ---------- tabs ----------
@@ -179,7 +195,7 @@ function home(m){
     el('p',{},'You will not read German sentences. You will recognise a ',el('mark',{},'trigger word'),' in the question and match it to a ',el('mark',{},'key word'),' in the correct answer. Words like ',el('span',{class:'not'},'nicht'),' / ',el('span',{class:'not'},'keine'),' are auto-marked red — they flip the question to "which one is NOT…".'),
     el('div',{class:'kpi'},
       el('div',{},el('b',{},L+'/'+P.length),el('span',{},'cards learned')),
-      el('div',{},el('b',{},String(W)),el('span',{},'in mistake pile')),
+      el('div',{},el('b',{},String(Object.keys(S.fav||{}).length)),el('span',{},'saved for later')),
       el('div',{},el('b',{},String(S.exams.length)),el('span',{},'mock exams taken')),
       el('div',{},el('b',{style:'font-size:16px'},last),el('span',{},'last scores'))),
     el('div',{class:'row',style:'margin-top:12px'},
@@ -214,19 +230,24 @@ function learn(m){
   card.append(el('div',{class:'row spread small'},el('span',{},'Card '+(ctx.i+1)+' of '+list.length),el('div',{class:'progress'},el('i',{style:'width:'+Math.round(100*(ctx.i+1)/list.length)+'%'}))));
   card.append(qBody(q));
   card.append(tipEl(q));
-  card.append(optsEl(q, 'mark'));
+  let answered=false;
+  const box=optsEl(q,'plain',(i)=>{
+    if(answered)return; answered=true;
+    box.querySelectorAll('.opt').forEach((o,k)=>{ if(k===q.correct){o.classList.add('correct'); o.querySelector('.t').innerHTML=hiKey(q,q.opts[k].de)+(S.showEn?'<small>'+esc(q.opts[k].en)+'</small>':'');} else if(k===i) o.classList.add('wrong'); else o.classList.add('dim'); });
+    if(i===q.correct){ S.learned[key(q)]=1; markRight(q); } else markWrong(q);
+    card.querySelector('.meta').replaceWith(qHeader(q));
+  });
+  card.append(box);
   const nav = el('div',{class:'row spread',style:'margin-top:12px'});
-  nav.append(el('button',{class:'btn',disabled:ctx.i===0?'1':null,onclick:()=>{ctx.i--;ctx.rev=0;render();}},'← Prev'));
-  nav.append(el('div',{class:'row'},
-      el('button',{class:'btn bad',onclick:()=>{markWrong(q);ctx.rev=0;ctx.i=Math.min(ctx.i+1,list.length-1);render();}},'Again ✗'),
-      el('button',{class:'btn ok',onclick:()=>{S.learned[key(q)]=1;delete S.wrong[key(q)];save();ctx.rev=0;if(ctx.hideLearned){}else ctx.i=Math.min(ctx.i+1,list.length-1);render();}},'Got it ✓')));
-  nav.append(el('button',{class:'btn',disabled:ctx.i>=list.length-1?'1':null,onclick:()=>{ctx.i++;ctx.rev=0;render();}},'Next →'));
+  nav.append(el('button',{class:'btn',disabled:ctx.i===0?'1':null,onclick:()=>{ctx.i--;render();}},'← Prev'));
+  nav.append(el('span',{class:'small'},'tap an answer · wrong ones are saved automatically'));
+  nav.append(el('button',{class:'btn',disabled:ctx.i>=list.length-1?'1':null,onclick:()=>{ctx.i++;render();}},'Next →'));
   card.append(nav);
   m.append(card);
   // list view below
   const tbl = el('table');
   tbl.append(el('tr',{},el('th',{},'#'),el('th',{},'SPOT'),el('th',{},'PICK'),el('th',{},'')));
-  list.forEach((x,idx)=>tbl.append(el('tr',{style:idx===ctx.i?'background:#eef2ff':'',onclick:()=>{ctx.i=idx;ctx.rev=0;render();window.scrollTo(0,0);}},el('td',{},String(x.id)),el('td',{html:x.trig.map(t=>'<mark>'+esc(t)+'</mark>').join(' + ')}),el('td',{html:'<mark class="k">'+esc(x.keySet?x.keySet.join(' / '):x.key)+'</mark>'}),el('td',{},S.learned[key(x)]?'✓':(S.wrong[key(x)]?'✗':'')))));
+  list.forEach((x,idx)=>tbl.append(el('tr',{style:idx===ctx.i?'background:#eef2ff':'',onclick:()=>{ctx.i=idx;ctx.rev=0;render();window.scrollTo(0,0);}},el('td',{},String(x.id)),el('td',{html:x.trig.map(t=>'<mark>'+esc(t)+'</mark>').join(' + ')}),el('td',{html:'<mark class="k">'+esc(x.keySet?x.keySet.join(' / '):x.key)+'</mark>'}),el('td',{},(isFav(x)?'★ ':'')+(S.learned[key(x)]?'✓':(S.wrong[key(x)]?'✗':''))))));
   m.append(el('div',{class:'card',style:'max-height:360px;overflow:auto'},tbl));
 }
 
@@ -234,19 +255,19 @@ function learn(m){
 function quiz(m){
   const P=pool();
   if(!ctx.list){
-    const box=el('div',{class:'card'},el('h2',{style:'margin:0 0 8px'},'Quick quiz'),el('p',{class:'small'},'Instant feedback after each answer. Wrong answers go to the Mistakes pile.'));
+    const box=el('div',{class:'card'},el('h2',{style:'margin:0 0 8px'},'Quick quiz'),el('p',{class:'small'},'Instant feedback after each answer. Wrong answers are saved automatically (⭐ Saved).'));
     const chips=el('div',{class:'chips'});
     const start=(list,label)=>{ctx={list:shuffle(list),i:0,score:0,label};render();};
     chips.append(el('span',{class:'chip',style:'background:#374151',onclick:()=>start(P,'All')},'All (random 33) ',el('small',{},'33')));
     chips.append(el('span',{class:'chip',style:'background:#111827',onclick:()=>start(P.filter(q=>!S.learned[key(q)]),'Unlearned')},'Unlearned only'));
-    chips.append(el('span',{class:'chip',style:'background:#7f1d1d',onclick:()=>start(P.filter(q=>S.wrong[key(q)]),'Mistakes')},'Mistakes only'));
+    chips.append(el('span',{class:'chip',style:'background:#b45309',onclick:()=>start(P.filter(q=>isFav(q)),'Saved')},'⭐ Saved only'));
     chips.append(el('span',{class:'chip',style:'background:#0369a1',onclick:()=>start(P.filter(q=>q.img),'Images')},'🖼️ Image questions'));
     CATS.forEach(c=>chips.append(el('span',{class:'chip',style:'background:'+CATCOL(c),onclick:()=>start(P.filter(q=>q.cat===c),c)},c)));
     box.append(chips); m.append(box); return;
   }
   let list=ctx.list; if(ctx.label==='All') list=ctx.list.slice(0,33);
   if(!list.length){m.append(el('div',{class:'card'},'No questions in this set yet.',el('br'),el('button',{class:'btn',onclick:()=>{ctx={};render();}},'Back')));return;}
-  if(ctx.i>=list.length){ m.append(el('div',{class:'card'},el('div',{class:'result '+(ctx.score/list.length>=0.52?'ok-text':'bad-text')},ctx.score+' / '+list.length),el('p',{},ctx.label+' quiz finished.'),el('div',{class:'row'},el('button',{class:'btn primary',onclick:()=>{ctx={};render();}},'New quiz'),el('button',{class:'btn',onclick:()=>go('mistakes')},'Review mistakes')))); return; }
+  if(ctx.i>=list.length){ m.append(el('div',{class:'card'},el('div',{class:'result '+(ctx.score/list.length>=0.52?'ok-text':'bad-text')},ctx.score+' / '+list.length),el('p',{},ctx.label+' quiz finished.'),el('div',{class:'row'},el('button',{class:'btn primary',onclick:()=>{ctx={};render();}},'New quiz'),el('button',{class:'btn',onclick:()=>go('mistakes')},'⭐ Saved')))); return; }
   const q=list[ctx.i];
   const card=el('div',{class:'card'});
   card.append(el('div',{class:'row spread small'},el('span',{},ctx.label+' · '+(ctx.i+1)+'/'+list.length+' · score '+ctx.score),el('div',{class:'progress'},el('i',{style:'width:'+Math.round(100*ctx.i/list.length)+'%'}))));
@@ -280,7 +301,7 @@ function exam(m){
     const qs=ctx.qs; const score=qs.filter((q,i)=>ctx.ans[i]===q.correct).length;
     if(!ctx.saved){S.exams.push({t:Date.now(),score});qs.forEach((q,i)=>{if(ctx.ans[i]!==q.correct)markWrong(q);else markRight(q);});save();ctx.saved=1;}
     const box=el('div',{class:'card'},el('div',{class:'result '+(score>=17?'ok-text':'bad-text')},score+' / 33'),el('p',{},score>=17?'BESTANDEN – you would pass both tests.':(score>=15?'Passes Leben in Deutschland (15), not yet citizenship (17).':'Not yet. Review below, then repeat tomorrow.')),
-      el('div',{class:'row'},el('button',{class:'btn primary',onclick:()=>{ctx={};render();}},'Back'),el('button',{class:'btn',onclick:()=>go('mistakes')},'Practice mistakes')));
+      el('div',{class:'row'},el('button',{class:'btn primary',onclick:()=>{ctx={};render();}},'Back'),el('button',{class:'btn',onclick:()=>go('mistakes')},'⭐ Saved')));
     m.append(box);
     qs.forEach((q,i)=>{ const c=el('div',{class:'card'}); c.append(qBody(q)); const ob=optsEl(q,'reveal'); if(ctx.ans[i]!=null&&ctx.ans[i]!==q.correct){ob.children[ctx.ans[i]].classList.add('wrong');ob.children[ctx.ans[i]].classList.remove('dim');} c.append(ob); if(ctx.ans[i]!==q.correct)c.append(tipEl(q)); m.append(c); });
     return;
@@ -303,10 +324,10 @@ function exam(m){
 
 // ---------- MISTAKES ----------
 function mistakes(m){
-  const P=pool().filter(q=>S.wrong[key(q)]).sort((a,b)=>S.wrong[key(b)]-S.wrong[key(a)]);
-  m.append(el('div',{class:'card'},el('h2',{style:'margin:0 0 6px'},'Mistake pile ('+P.length+')'),el('p',{class:'small'},'Every question you got wrong in Learn, Quiz or Exam lands here. Clear it daily.'),
-    el('div',{class:'row'},el('button',{class:'btn primary',disabled:P.length?null:'1',onclick:()=>go('quiz',{list:shuffle(P),i:0,score:0,label:'Mistakes'})},'🎯 Quiz me on these'),el('button',{class:'btn',disabled:P.length?null:'1',onclick:()=>{if(confirm('Clear the mistake pile?')){S.wrong={};save();render();}}},'Clear pile'))));
-  P.forEach(q=>{const c=el('div',{class:'card'});c.append(qBody(q));c.append(optsEl(q,'reveal'));c.append(tipEl(q));c.append(el('div',{class:'row',style:'margin-top:8px'},el('button',{class:'btn ok',onclick:()=>{S.learned[key(q)]=1;delete S.wrong[key(q)];save();render();}},'Got it now ✓')));m.append(c);});
+  const P=pool().filter(q=>isFav(q)).sort((a,b)=>(S.wrong[key(b)]||0)-(S.wrong[key(a)]||0) || (S.fav[key(b)]-S.fav[key(a)]));
+  m.append(el('div',{class:'card'},el('h2',{style:'margin:0 0 6px'},'⭐ Saved for later ('+P.length+')'),el('p',{class:'small'},'Questions you starred plus every answer you got wrong. Kept for 30 days in this browser. Tap ★ on a card to remove it.'),
+    el('div',{class:'row'},el('button',{class:'btn primary',disabled:P.length?null:'1',onclick:()=>go('quiz',{list:shuffle(P),i:0,score:0,label:'Saved'})},'🎯 Quiz me on these'),el('button',{class:'btn',disabled:P.length?null:'1',onclick:()=>{if(confirm('Remove all saved questions?')){S.fav={};save();render();}}},'Clear all'))));
+  P.forEach(q=>{const c=el('div',{class:'card'});c.append(qBody(q));c.append(tipEl(q));c.append(optsEl(q,'reveal'));m.append(c);});
 }
 
 // ---------- CHEAT SHEET ----------
@@ -321,12 +342,12 @@ function cheat(m){
 // ---------- PLAN ----------
 const PLAN=[
  {d:1,t:'Foundations: Grundrechte + Recht',cats:['Grundrechte','Recht'],tasks:['Read the "How this works" box and the vocabulary starter below (20 min).','Learn mode: Grundrechte (24 cards) – tap "Got it" only when the trigger→answer pair feels automatic.','Learn mode: Recht (32 cards).','Quiz: Grundrechte, then Recht. Aim 70%+.']},
- {d:2,t:'The State machine: Staat & Politik',cats:['Staat & Politik'],tasks:['Study the "Who does what" diagram below (Bundestag / Bundesrat / Bundespräsident / Bundeskanzler / Bundesverfassungsgericht).','Learn mode: Staat & Politik (57 cards) in two sessions.','Quiz: Staat & Politik. Clear the Mistakes pile before bed.']},
- {d:3,t:'Elections, parties + your state',cats:['Wahlen & Parteien','Bundesland'],tasks:['Learn mode: Wahlen & Parteien (41 cards). Party acronyms: CDU/CSU/SPD/FDP/Grüne/Linke/AfD.','Learn mode: Bundesland (3) + the 10 Brandenburg questions (they are 3 of your 33 – cheapest points on the paper).','Quiz: Wahlen & Parteien + Mistakes pile.']},
- {d:4,t:'History I: 1933–1949 + Europe',cats:['Geschichte','Europa'],tasks:['Memorise the timeline below (7 years). Say it out loud 5 times.','Learn mode: Geschichte (34 cards).','Learn mode: Europa (14 cards).','Quiz: Geschichte, Europa, Mistakes.']},
- {d:5,t:'History II: DDR & Einheit + Geography',cats:['DDR & Einheit','Geografie'],tasks:['Learn mode: DDR & Einheit (34 cards) – the 5 eastern states: Brandenburg, Mecklenburg-Vorpommern, Sachsen, Sachsen-Anhalt, Thüringen.','Learn mode: Geografie (9 cards) – neighbours: Polen, Tschechien, Österreich, Schweiz, Frankreich, Luxemburg, Belgien, Niederlande, Dänemark.','Quiz: DDR & Einheit + Geografie + Mistakes.']},
- {d:6,t:'Society, religion, everyday life',cats:['Gesellschaft & Alltag','Religion & Kultur'],tasks:['Learn mode: Gesellschaft & Alltag (38 cards).','Learn mode: Religion & Kultur (14 cards).','Quiz: both topics + Mistakes.','FIRST MOCK EXAM tonight (60 min, English hidden). Whatever the score – it is a baseline.']},
- {d:7,t:'Image questions + mock exams',cats:[],tasks:['Learn mode → "image questions only" (11 general + 2 state). Look at each picture for 10 seconds; know the answer number.','Mock exam ×2 with English hidden.','Mistakes pile → Quiz until empty.']},
+ {d:2,t:'The State machine: Staat & Politik',cats:['Staat & Politik'],tasks:['Study the "Who does what" diagram below (Bundestag / Bundesrat / Bundespräsident / Bundeskanzler / Bundesverfassungsgericht).','Learn mode: Staat & Politik (57 cards) in two sessions.','Quiz: Staat & Politik. Clear the Saved list before bed.']},
+ {d:3,t:'Elections, parties + your state',cats:['Wahlen & Parteien','Bundesland'],tasks:['Learn mode: Wahlen & Parteien (41 cards). Party acronyms: CDU/CSU/SPD/FDP/Grüne/Linke/AfD.','Learn mode: Bundesland (3) + the 10 Brandenburg questions (they are 3 of your 33 – cheapest points on the paper).','Quiz: Wahlen & Parteien + Saved list.']},
+ {d:4,t:'History I: 1933–1949 + Europe',cats:['Geschichte','Europa'],tasks:['Memorise the timeline below (7 years). Say it out loud 5 times.','Learn mode: Geschichte (34 cards).','Learn mode: Europa (14 cards).','Quiz: Geschichte, Europa, Saved.']},
+ {d:5,t:'History II: DDR & Einheit + Geography',cats:['DDR & Einheit','Geografie'],tasks:['Learn mode: DDR & Einheit (34 cards) – the 5 eastern states: Brandenburg, Mecklenburg-Vorpommern, Sachsen, Sachsen-Anhalt, Thüringen.','Learn mode: Geografie (9 cards) – neighbours: Polen, Tschechien, Österreich, Schweiz, Frankreich, Luxemburg, Belgien, Niederlande, Dänemark.','Quiz: DDR & Einheit + Geografie + Saved.']},
+ {d:6,t:'Society, religion, everyday life',cats:['Gesellschaft & Alltag','Religion & Kultur'],tasks:['Learn mode: Gesellschaft & Alltag (38 cards).','Learn mode: Religion & Kultur (14 cards).','Quiz: both topics + Saved.','FIRST MOCK EXAM tonight (60 min, English hidden). Whatever the score – it is a baseline.']},
+ {d:7,t:'Image questions + mock exams',cats:[],tasks:['Learn mode → "image questions only" (11 general + 2 state). Look at each picture for 10 seconds; know the answer number.','Mock exam ×2 with English hidden.','Saved list → Quiz until empty.']},
  {d:8,t:'Cheat-sheet sweep',cats:[],tasks:['Cheat sheet tab: read all 310 rows top to bottom (≈40 min). Cover the answer column with your hand, say the answer, check.','Mock exam ×2.','Re-learn any topic under 80% in Quiz.']},
  {d:9,t:'Realistic dress rehearsal',cats:[],tasks:['Morning: mock exam with English hidden, on the phone, standing – uncomfortable on purpose.','Check the 3 "current officeholder" questions (72 Bundeskanzler, 73 largest Fraktionen, 75 Bundespräsident) against today\'s news.','Evening: mock exam ×2. Target: 28+/33 twice in a row.']},
  {d:10,t:'Exam day (or the day before)',cats:[],tasks:['One relaxed mock exam only. Stop studying 3 hours before the test.','Bring: ID / passport, appointment letter, a pen. Arrive 20 min early.','In the room: for each question, find the yellow-trigger word from memory; if unsure, eliminate the two silliest options and pick the most "official" one. Never leave a question blank – there is no penalty.']}
